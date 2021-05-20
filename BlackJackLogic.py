@@ -81,12 +81,14 @@ class BlackJack:
                 self.__game['money']['player'] += value
                 self.__game['money']['dealer'] -= value
 
-            def record(self, layer, operation, value=None):
-                record = {"layer": layer, "operation": operation}
+            def record(self, operation, layer=None, value=None):
+                record = {"operation": operation, "layer": layer}
                 if operation == 'Draw':
                     record['card'] = value % 13 + 1
                 elif operation == 'Split':
                     record['new layer'] = value
+                elif operation == 'Insurance':
+                    del record['layer']
                 self.__game["records"].append(deepcopy(record))
 
         SALT_COMPLEXITY = 4
@@ -185,12 +187,12 @@ class BlackJack:
             self.__pile = pile
             self.__info = info
 
-        def init(self):
+        def __init(self):
             self.__pile.init()
             for _ in range(2):
                 for user in (PLAYER, DEALER):
-                    self.__info.insert.record(user, 'Deal')
-                    self.__info.insert.record(user, 'Draw', self.__pile.draw(user))
+                    self.__info.insert.record(layer=user, operation='Deal')
+                    self.__draw(user)
 
         def __cards_sum(self, _user):
             cards = []
@@ -205,16 +207,48 @@ class BlackJack:
             return _sum
 
         def __draw(self, user):
-            self.__info.insert.record(user, 'Draw', self.__pile.draw(user))
+            self.__info.insert.record(layer=user, operation='Draw', value=self.__pile.draw(user))
+
+        def __stand_double(self, user):
+            dealer = self.__cards_sum(DEALER)
+            player = self.__cards_sum(user)
+            record = 'Win' if player > dealer else 'Lose' if dealer < player else 'Deuce'
+            self.__info.insert.record(layer=user, operation=record)
+            self.__end[user] = True
+            if False not in self.__end:
+                self.__dealer_hit()
+            return WIN if player > dealer else LOSE if dealer < player else DEUCE
+
+        def __dealer_hit(self):
+            def soft():
+                for card in self.__pile.card:
+                    if card % 13 == 0:
+                        return True
+                return False
+
+            def max_player():
+                _player = self.__cards_sum(PLAYER)
+                for user in range(2, len(self.__pile.card)):
+                    _player = max(_player, self.__cards_sum(user))
+                return _player
+
+            player = max_player()
+            dealer = self.__cards_sum(DEALER)
+            while 0 < dealer < max(player, 17) or dealer == 17 and soft():
+                self.__info.insert.record(layer=DEALER, operation='Hit')
+                self.__draw(DEALER)
+                dealer = self.__cards_sum(DEALER)
 
         def hit(self, user):
             if user < 0:
                 raise ValueError('user error')
-            self.__info.insert.record(user, 'Hit')
+            self.__info.insert.record(layer=user, operation='Hit')
             self.__draw(user)
             if self.__cards_sum(user) == 0:
+                self.__end[user] = True
                 return BUSTS
             elif user != DEALER:
+                self.__end[user] = True
                 return FIVE if len(self.__pile.card[user]) >= 5 else CONTINUE
             else:
                 return CONTINUE
@@ -222,34 +256,32 @@ class BlackJack:
         def stand(self, user):
             if user < 0:
                 raise ValueError('user error')
-            dealer = self.__cards_sum(DEALER)
-            player = self.__cards_sum(user)
-            self.__info.insert.record(user, 'Stand')
-            record = 'Win' if player > dealer else 'Lose' if dealer < player else 'Deuce'
-            self.__info.insert.record(user, record)
-            return WIN if player > dealer else LOSE if dealer < player else DEUCE
+            self.__info.insert.record(layer=user, operation='Stand')
+            self.__stand_double(user)
 
         def double(self, user):
             if user < 0:
                 raise ValueError('user error')
-            self.__info.insert.record(user, 'Double')
+            self.__info.insert.record(layer=user, operation='Double')
             self.__draw(user)
-            dealer = self.__cards_sum(DEALER)
-            player = self.__cards_sum(user)
-            record = 'Win' if player > dealer else 'Lose' if dealer < player else 'Deuce'
-            self.__info.insert.record(user, record)
-            return WIN if player > dealer else LOSE if dealer < player else DEUCE
+            self.__stand_double(user)
 
         def split(self, user_from):
             user_to = len(self.__pile.card)
             self.__pile.move(user_from, user_to)
-            self.__info.insert.record(user_from, 'Split', user_to)
+            self.__info.insert.record(layer=user_from, operation='Split', value=user_to)
+            self.__end.append(False)
 
         def insurance(self):
+            self.__info.insert.record(operation='Insurance')
             return True if self.__cards_sum(DEALER) == 22 else False
 
         def surrender(self):
             pass
+        
+        @property
+        def end(self):
+            return False if False in self.__end else True
 
     class __Get:
         def __init__(self, state):
